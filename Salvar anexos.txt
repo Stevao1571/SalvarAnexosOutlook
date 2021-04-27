@@ -1,0 +1,189 @@
+
+
+Option Explicit
+
+
+#If VBA7 Then
+    
+    Private lHwnd As LongPtr
+    
+    
+    Private Declare PtrSafe Function FindWindow Lib "user32" Alias "FindWindowA" (ByVal lpClassName As String, _
+        ByVal lpWindowName As String) As LongPtr
+    
+#Else
+    
+    Private lHwnd As Long
+    
+    
+    Private Declare Function FindWindow Lib "user32" Alias "FindWindowA" (ByVal lpClassName As String, _
+        ByVal lpWindowName As String) As Long
+#End If
+
+
+Private Const olAppCLSN As String = "rctrl_renwnd32"
+
+Private Const CSIDL_DESKTOP = &H0
+
+Private Const BIF_RETURNONLYFSDIRS = &H1
+
+Private Const BIF_DONTGOBELOWDOMAIN = &H2
+
+Private Const MAX_PATH = 260
+
+
+Public Function SaveAttachmentsFromSelection() As Long
+    Dim objFSO              As Object
+    Dim objShell            As Object
+    Dim objFolder           As Object
+    Dim objItem             As Object
+    Dim selItems            As Selection
+    Dim atmt                As Attachment
+    Dim strAtmtPath         As String
+    Dim strAtmtFullName     As String
+    Dim strAtmtName(1)      As String
+    Dim strAtmtNameTemp     As String
+    Dim intDotPosition      As Integer
+    Dim atmts               As Attachments
+    Dim lCountEachItem      As Long
+    Dim lCountAllItems      As Long
+    Dim strFolderPath       As String
+    Dim blnIsEnd            As Boolean
+    Dim blnIsSave           As Boolean
+    
+    blnIsEnd = False
+    blnIsSave = False
+    lCountAllItems = 0
+    
+    On Error Resume Next
+    
+    Set selItems = ActiveExplorer.Selection
+    
+    If Err.Number = 0 Then
+        
+        
+        lHwnd = FindWindow(olAppCLSN, vbNullString)
+        
+        If lHwnd <> 0 Then
+            
+            
+            Set objShell = CreateObject("Shell.Application")
+            Set objFSO = CreateObject("Scripting.FileSystemObject")
+            Set objFolder = objShell.BrowseForFolder(lHwnd, "Select folder to save attachments:", _
+                                                     BIF_RETURNONLYFSDIRS + BIF_DONTGOBELOWDOMAIN, CSIDL_DESKTOP)
+            
+            
+            If Err.Number <> 0 Then
+                MsgBox "Run-time error '" & CStr(Err.Number) & " (0x" & CStr(Hex(Err.Number)) & ")':" & vbNewLine & _
+                       Err.Description & ".", vbCritical, "Error from Attachment Saver"
+                blnIsEnd = True
+                GoTo PROC_EXIT
+            End If
+            
+            If objFolder Is Nothing Then
+                strFolderPath = ""
+                blnIsEnd = True
+                GoTo PROC_EXIT
+            Else
+                strFolderPath = CGPath(objFolder.Self.Path)
+                
+                
+                For Each objItem In selItems
+                    lCountEachItem = objItem.Attachments.Count
+                    
+                    
+                    If lCountEachItem > 0 Then
+                        Set atmts = objItem.Attachments
+                        
+                        
+                        For Each atmt In atmts
+                            
+                            
+                            strAtmtFullName = atmt.FileName
+                            
+                            
+                            intDotPosition = InStrRev(strAtmtFullName, ".")
+                            
+                            
+                            strAtmtName(0) = Left$(strAtmtFullName, intDotPosition - 1)
+                            
+                            strAtmtName(1) = Right$(strAtmtFullName, Len(strAtmtFullName) - intDotPosition)
+                            
+                            strAtmtPath = strFolderPath & atmt.FileName
+                            
+                            
+                            If Len(strAtmtPath) <= MAX_PATH Then
+                                
+                                blnIsSave = True
+                                
+                               
+                                Do While objFSO.FileExists(strAtmtPath)
+                                    strAtmtNameTemp = strAtmtName(0) & _
+                                                      Format(Now, "_mmddhhmmss") & _
+                                                      Format(Timer * 1000 Mod 1000, "000")
+                                    strAtmtPath = strFolderPath & strAtmtNameTemp & "." & strAtmtName(1)
+                                        
+                                   
+                                    If Len(strAtmtPath) > MAX_PATH Then
+                                        lCountEachItem = lCountEachItem - 1
+                                        
+                                        blnIsSave = False
+                                        Exit Do
+                                    End If
+                                Loop
+                                
+                            
+                                If blnIsSave Then atmt.SaveAsFile strAtmtPath
+                            Else
+                                lCountEachItem = lCountEachItem - 1
+                            End If
+                        Next
+                    End If
+                    
+                  
+                    lCountAllItems = lCountAllItems + lCountEachItem
+                Next
+            End If
+        Else
+            MsgBox "Failed to get the handle of Outlook window!", vbCritical, "Error from Attachment Saver"
+            blnIsEnd = True
+            GoTo PROC_EXIT
+        End If
+        
+  
+    Else
+        MsgBox "Please select an Outlook item at least.", vbExclamation, "Message from Attachment Saver"
+        blnIsEnd = True
+    End If
+    
+PROC_EXIT:
+    SaveAttachmentsFromSelection = lCountAllItems
+    
+    If Not (objFSO Is Nothing) Then Set objFSO = Nothing
+    If Not (objItem Is Nothing) Then Set objItem = Nothing
+    If Not (selItems Is Nothing) Then Set selItems = Nothing
+    If Not (atmt Is Nothing) Then Set atmt = Nothing
+    If Not (atmts Is Nothing) Then Set atmts = Nothing
+    
+    ' /* End all code execution if the value of blnIsEnd is True. */
+    If blnIsEnd Then End
+End Function
+
+
+Public Function CGPath(ByVal Path As String) As String
+    If Right(Path, 1) <> "\" Then Path = Path & "\"
+    CGPath = Path
+End Function
+
+
+Public Sub SalvarAnexos()
+    Dim lNum As Long
+    
+    lNum = SaveAttachmentsFromSelection
+    
+    If lNum > 0 Then
+        MsgBox CStr(lNum) & " " & "Anexos salvos com sucesso", vbInformation, "Salvar Anexos"
+    Else
+        MsgBox "Não foram encontrados anexos nos itens selecionados", vbInformation, "Salvar Anexos"
+    End If
+End Sub
